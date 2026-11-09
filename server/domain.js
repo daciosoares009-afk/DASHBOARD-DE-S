@@ -11,6 +11,8 @@ export function aggregate(tasks) {
 export function status(task, today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })) {
     if (progress(task) >= 100)
         return 'Concluído';
+    if (task.paused)
+        return 'Pausado';
     if (task.end && task.end < today)
         return 'Atrasado';
     return progress(task) > 0 ? 'Em andamento' : 'Pendente';

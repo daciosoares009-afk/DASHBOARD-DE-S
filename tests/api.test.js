@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const folder = mkdtempSync(join(tmpdir(), 'prumo-test-'));
 let processHandle;
 const port = 3150 + Math.floor(Math.random() * 1000), base = `http://127.0.0.1:${port}/api`;
-async function launch() { processHandle = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT: String(port), DB_PATH: join(folder, 'test.sqlite') }, stdio: ['ignore', 'pipe', 'pipe'] }); await new Promise((resolve, reject) => { let out = ''; const timeout = setTimeout(() => reject(new Error('Servidor não iniciou: ' + out)), 20000); processHandle.stdout.on('data', b => { out += b; if (out.includes('disponível')) {
+async function launch(environment = {}) { processHandle = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, NODE_ENV: 'test', PORT: String(port), DB_PATH: join(folder, 'test.sqlite'), ...environment }, stdio: ['ignore', 'pipe', 'pipe'] }); await new Promise((resolve, reject) => { let out = ''; const timeout = setTimeout(() => reject(new Error('Servidor não iniciou: ' + out)), 30000); processHandle.stdout.on('data', b => { out += b; if (out.includes('disponível')) {
     clearTimeout(timeout);
     resolve();
 } }); processHandle.stderr.on('data', b => out += b); processHandle.on('exit', () => { clearTimeout(timeout); reject(new Error(out)); }); }); }
@@ -39,6 +39,7 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         assert.equal((await request('/users', 'POST', { name: 'Colaborador teste', email: 'worker@example.test', password: 'Teste-seguro-123', role: 'collaborator' }, cookie)).status, 200);
         const c = await request('/auth/login', 'POST', { email: 'worker@example.test', password: 'Teste-seguro-123' });
         assert.equal((await request('/records/work', 'POST', {}, c.cookie)).status, 403);
+        assert.deepEqual((await request('/data', 'GET', undefined, c.cookie)).value.records, []);
         assert.equal((await request('/tasks/' + s.value.id + '/measure', 'POST', { value: 20, note: '' }, c.cookie)).status, 403);
         const other = await request('/auth/register', 'POST', { name: 'Outra pessoa', organization: 'Outra organização', email: 'other@example.test', password: 'Teste-seguro-123' });
         assert.equal((await request('/data', 'GET', undefined, other.cookie)).value.records.length, 0);
@@ -54,10 +55,49 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         data = (await request('/data', 'GET', undefined, cookie)).value;
         assert.equal(data.history.length, 1);
         assert.equal(data.records.find(r => r.id === s.value.id).executed, 350);
+        const workRecord = data.records.find(r => r.id === w.value.id);
+        assert.equal((await request('/records/' + workRecord.id, 'PUT', { ...workRecord, name: 'Obra atualizada' }, cookie)).status, 200);
+        const sub = await request('/records/task', 'POST', { ...body, name: 'Preparação' }, cookie);
+        const stage = await request('/records/stage', 'POST', { ...body, name: 'Lixar', parent: sub.value.id, owner: c.value.id }, cookie);
+        assert.equal(stage.status, 200);
+        assert.equal((await request('/records/stage', 'POST', { ...body, parent: g.value.id }, cookie)).status, 400);
+        assert.equal((await request('/tasks/' + sub.value.id + '/measure', 'POST', { value: 10, note: '' }, cookie)).status, 400);
+        const allowed = (await request('/data', 'GET', undefined, c.cookie)).value;
+        assert.deepEqual(new Set(allowed.records.map(r => r.id)), new Set([w.value.id, g.value.id, sub.value.id, stage.value.id]));
+        assert.equal(allowed.history.length, 0);
+        assert.equal((await request('/tasks/' + stage.value.id + '/measure', 'POST', { value: 250, note: 'Etapa em andamento' }, c.cookie)).status, 200);
+        const managerCredentials = { email: 'manager@example.test', password: 'Teste-seguro-123' };
+        assert.equal((await request('/users', 'POST', { ...managerCredentials, name: 'Gestor teste', role: 'manager' }, cookie)).status, 200);
+        const manager = await request('/auth/login', 'POST', managerCredentials);
+        assert.equal((await request('/records/' + workRecord.id, 'PUT', workRecord, manager.cookie)).status, 403);
+        assert.equal((await request('/users/' + manager.value.id + '/access', 'PUT', { role: 'manager', works: [w.value.id] }, manager.cookie)).status, 403);
+        assert.equal((await request('/users/' + manager.value.id + '/access', 'PUT', { role: 'manager', works: [w.value.id] }, cookie)).status, 200);
+        assert.equal((await request('/records/' + workRecord.id, 'PUT', workRecord, manager.cookie)).status, 200);
+        assert.equal((await request('/api-missing', 'GET', undefined, manager.cookie)).status, 404);
+        assert.equal((await fetch(base + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' })).status, 400);
+        assert.equal((await fetch(base + '/logout', { method: 'POST', headers: { origin: 'https://example.test', cookie: manager.cookie } })).status, 403);
+        assert.equal((await request('/logout', 'POST', undefined, manager.cookie)).status, 200);
+        assert.equal((await request('/me', 'GET', undefined, manager.cookie)).status, 401);
         assert.equal((await request('/records/' + w.value.id, 'DELETE', undefined, cookie)).status, 200);
         data = (await request('/data', 'GET', undefined, cookie)).value;
         assert.equal(data.records.filter(r => r.kind === 'task').length, 0);
-        assert.equal(data.history.length, 1);
+        assert.equal(data.records.filter(r => r.kind === 'stage').length, 0);
+        assert.equal(data.history.length, 2);
+        assert.ok(data.audit.some(event => event.action === 'Arquivamento'));
+        await stop();
+        await launch({ NODE_ENV: 'production', APP_ORIGIN: 'https://torre.example.test', TRUST_PROXY: '1' });
+        assert.equal((await request('/health')).status, 400);
+        const forwarded = { 'X-Forwarded-Proto': 'https' };
+        const health = await fetch(base + '/health', { headers: forwarded });
+        assert.equal(health.status, 200);
+        assert.ok(health.headers.has('strict-transport-security'));
+        const login = await fetch(base + '/auth/login', {
+            method: 'POST', headers: { ...forwarded, 'Content-Type': 'application/json', Origin: 'https://torre.example.test' },
+            body: JSON.stringify({ email: 'admin@example.test', password: 'Teste-seguro-123' })
+        });
+        assert.equal(login.status, 200);
+        assert.match(login.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Strict/i);
+        assert.equal((await fetch(base + '/auth/register', { method: 'POST', headers: forwarded })).status, 403);
     }
     finally {
         await stop();

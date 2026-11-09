@@ -1,0 +1,9 @@
+.git
+.npm-cache
+node_modules
+dist
+data
+.env
+.env.*
+*.log
+*.sqlite*
