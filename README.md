@@ -58,3 +58,12 @@ npm test
 ```
 
 O comando `lint` faz a checagem estática TypeScript. Os testes de integração usam um SQLite temporário e um servidor em loopback, sem acessar a base de uso.
+## Senhas, cópias e acompanhamento
+
+Em **Configurações**, use **Trocar senha** para alterar sua senha atual. As sessões abertas são encerradas. Em **Códigos de recuperação**, gere e guarde cinco códigos privados, válidos por um ano. A opção **Esqueci minha senha** usa o e-mail, um código e uma nova senha. Ao recuperar, todos os códigos anteriores e sessões são invalidados. Administradores podem emitir um código de 30 minutos para outra conta da própria organização, confirmando a senha do administrador. O armazenamento guarda apenas o hash dos códigos.
+
+A recuperação por códigos está operacional. O envio por e-mail depende de contratar/configurar um serviço de envio e ainda não faz parte deste fluxo.
+
+Em produção, o servidor gera uma cópia consistente do SQLite a cada dia em `backups`, dentro do diretório do banco. Confere a integridade antes de publicar o arquivo e retém sete cópias. A verificação ocorre na inicialização e a cada hora. `BACKUP_ENABLED=false` desativa o agendamento e `BACKUP_DIR` muda o destino. As cópias incluem toda a base e exigem acesso administrativo ao servidor. A seção **Backups automáticos**, disponível para administradores, informa a última cópia. Cópias no mesmo volume protegem contra alterações acidentais e devem ser complementadas por cópias externas.
+
+Foram configuradas duas automações no Codex, uma para checar a disponibilidade a cada hora e outra para baixar diariamente uma cópia privada para `data/offsite-backups` neste computador. Elas dependem do Codex, do computador disponível e da autenticação Railway. Os avisos são emitidos quando há falha confirmada, recuperação ou necessidade de ação.

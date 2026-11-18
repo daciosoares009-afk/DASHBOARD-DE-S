@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const folder = mkdtempSync(join(tmpdir(), 'prumo-test-'));
 let processHandle;
 const port = 3150 + Math.floor(Math.random() * 1000), base = `http://127.0.0.1:${port}/api`;
-async function launch(environment = {}) { processHandle = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, NODE_ENV: 'test', PORT: String(port), DB_PATH: join(folder, 'test.sqlite'), ...environment }, stdio: ['ignore', 'pipe', 'pipe'] }); await new Promise((resolve, reject) => { let out = ''; const timeout = setTimeout(() => reject(new Error('Servidor não iniciou: ' + out)), 30000); processHandle.stdout.on('data', b => { out += b; if (out.includes('disponível')) {
+async function launch(environment = {}) { processHandle = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, NODE_ENV: 'test', BACKUP_ENABLED: 'false', PORT: String(port), DB_PATH: join(folder, 'test.sqlite'), ...environment }, stdio: ['ignore', 'pipe', 'pipe'] }); await new Promise((resolve, reject) => { let out = ''; const timeout = setTimeout(() => reject(new Error('Servidor não iniciou: ' + out)), 30000); processHandle.stdout.on('data', b => { out += b; if (out.includes('disponível')) {
     clearTimeout(timeout);
     resolve();
 } }); processHandle.stderr.on('data', b => out += b); processHandle.on('exit', () => { clearTimeout(timeout); reject(new Error(out)); }); }); }
@@ -29,11 +29,14 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         const s = await request('/records/task', 'POST', body, cookie);
         assert.equal(s.status, 200);
         assert.equal((await request('/tasks/' + s.value.id + '/measure', 'POST', { value: 600, note: '' }, cookie)).status, 400);
-        assert.equal((await request('/tasks/' + s.value.id + '/measure', 'POST', { value: 350, note: 'Paredes concluídas' }, cookie)).status, 200);
+        const photo = { name: 'teste.png', mime: 'image/png', content: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=' };
+        assert.equal((await request('/tasks/' + s.value.id + '/measure', 'POST', { value: 350, note: 'Paredes concluídas', photos: [photo] }, cookie)).status, 200);
         assert.equal((await request('/records/' + g.value.id + '/duplicate', 'POST', { floors: [2, 3] }, cookie)).status, 200);
         let data = (await request('/data', 'GET', undefined, cookie)).value;
         assert.equal(data.records.filter(r => r.kind === 'task').length, 3);
         assert.equal(data.history.length, 1);
+        assert.equal(data.attachments.length, 1);
+        assert.equal((await request('/attachments/' + data.attachments[0].id, 'GET', undefined, cookie)).status, 200);
         assert.equal(data.history[0].current, 70);
         assert.equal(data.records.find(r => r.name === '02º pavimento — Hall').executed, 0);
         assert.equal((await request('/users', 'POST', { name: 'Colaborador teste', email: 'worker@example.test', password: 'Teste-seguro-123', role: 'collaborator' }, cookie)).status, 200);
@@ -43,6 +46,7 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         assert.equal((await request('/tasks/' + s.value.id + '/measure', 'POST', { value: 20, note: '' }, c.cookie)).status, 403);
         const other = await request('/auth/register', 'POST', { name: 'Outra pessoa', organization: 'Outra organização', email: 'other@example.test', password: 'Teste-seguro-123' });
         assert.equal((await request('/data', 'GET', undefined, other.cookie)).value.records.length, 0);
+        assert.equal((await request('/attachments/' + data.attachments[0].id, 'GET', undefined, other.cookie)).status, 404);
         assert.equal((await request('/records/' + s.value.id, 'PUT', body, other.cookie)).status, 404);
         const xlsx = await request('/reports/xlsx?work=' + w.value.id, 'GET', undefined, cookie);
         assert.equal(xlsx.status, 200);
@@ -78,6 +82,25 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         assert.equal((await fetch(base + '/logout', { method: 'POST', headers: { origin: 'https://example.test', cookie: manager.cookie } })).status, 403);
         assert.equal((await request('/logout', 'POST', undefined, manager.cookie)).status, 200);
         assert.equal((await request('/me', 'GET', undefined, manager.cookie)).status, 401);
+        assert.equal((await request('/operations', 'GET', undefined, c.cookie)).status, 403);
+        assert.equal((await request('/users/' + a.value.id + '/recovery-code', 'POST', { currentPassword: 'Teste-seguro-123' }, c.cookie)).status, 403);
+        const recovery = await request('/account/recovery-codes', 'POST', { currentPassword: 'Teste-seguro-123' }, c.cookie);
+        assert.equal(recovery.status, 200);
+        assert.equal(recovery.value.codes.length, 5);
+        const recovered = await request('/auth/recover', 'POST', { email: 'worker@example.test', code: recovery.value.codes[0], password: 'Nova-senha-12345' });
+        assert.equal(recovered.status, 200);
+        assert.equal((await request('/me', 'GET', undefined, c.cookie)).status, 401);
+        assert.equal((await request('/auth/recover', 'POST', { email: 'worker@example.test', code: recovery.value.codes[1], password: 'Outra-senha-12345' })).status, 400);
+        const newLogin = await request('/auth/login', 'POST', { email: 'worker@example.test', password: 'Nova-senha-12345' });
+        assert.equal(newLogin.status, 200);
+        assert.equal((await request('/account/password', 'POST', { currentPassword: 'Teste-incorreto', password: 'Senha-final-12345' }, newLogin.cookie)).status, 400);
+        assert.equal((await request('/account/password', 'POST', { currentPassword: 'Nova-senha-12345', password: 'Senha-final-12345' }, newLogin.cookie)).status, 200);
+        assert.equal((await request('/me', 'GET', undefined, newLogin.cookie)).status, 401);
+        assert.equal((await request('/users/' + other.value.id + '/recovery-code', 'POST', { currentPassword: 'Teste-seguro-123' }, cookie)).status, 404);
+        const tempRecovery = await request('/users/' + c.value.id + '/recovery-code', 'POST', { currentPassword: 'Teste-seguro-123' }, cookie);
+        assert.equal(tempRecovery.status, 200);
+        assert.equal((await request('/auth/recover', 'POST', { email: 'worker@example.test', code: tempRecovery.value.code, password: 'Senha-final-45678' })).status, 200);
+        assert.equal((await request('/operations/backup', 'POST', undefined, cookie)).status, 200);
         assert.equal((await request('/records/' + w.value.id, 'DELETE', undefined, cookie)).status, 200);
         data = (await request('/data', 'GET', undefined, cookie)).value;
         assert.equal(data.records.filter(r => r.kind === 'task').length, 0);

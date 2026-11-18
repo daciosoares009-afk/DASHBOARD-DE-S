@@ -8,6 +8,8 @@ import PDFDocument from 'pdfkit';
 import { all, one, run, transaction } from './store.js';
 import { progress, status, floorCopy } from './domain.js';
 import { recordsFor } from './access.js';
+import { publicRecovery, privateRecovery } from './recovery.js';
+import { scheduleBackups, backupStatus, dailyBackup } from './backups.js';
 const app = express();
 app.disable('x-powered-by');
 const production = process.env.NODE_ENV === 'production';
@@ -69,6 +71,7 @@ app.post('/api/auth/login', (req, res, next) => { try {
 catch (e) {
     next(e);
 } });
+publicRecovery(app, { hash, fail });
 app.use('/api', (req, res, next) => { const token = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('session='))?.slice(8); const u = one('SELECT users.* FROM users JOIN sessions ON sessions.user=users.id WHERE token=? AND expires>?', token || '', Date.now()); if (!u)
     return res.status(401).json({ error: 'Entre para continuar' }); req.user = u; req.sessionToken = token; next(); });
 app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
@@ -312,6 +315,19 @@ app.get('/api/reports/:format', (req, res, next) => { try {
 catch (e) {
     next(e);
 } });
+privateRecovery(app, { hash, verify, fail, audit });
+app.get('/api/operations', async (req, res, next) => {
+    try {
+        if (req.user.role !== 'admin') throw fail('Acesso restrito', 403);
+        res.json({ backups: await backupStatus() });
+    } catch (error) { next(error); }
+});
+app.post('/api/operations/backup', async (req, res, next) => {
+    try {
+        if (req.user.role !== 'admin') throw fail('Acesso restrito', 403);
+        res.json(await dailyBackup());
+    } catch (error) { next(error); }
+});
 app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint não encontrado' }));
 if (existsSync('dist/index.html')) {
     app.use(express.static('dist'));
@@ -332,6 +348,7 @@ app.use((error, req, res, next) => {
     console.error('Falha interna', { method: req.method, code: error.code || error.name });
     res.status(500).json({ error: 'Erro interno ao processar a solicitação' });
 });
+scheduleBackups();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.RENDER === 'true' ? '0.0.0.0' : process.env.HOST || '127.0.0.1';
 app.listen(port, host, () => console.log(`Evolução Serviços - Torre disponível na porta ${port} (interface ${host})`));
