@@ -197,7 +197,7 @@ function RecordForm({ modal, works, users, teams, busy, onSave }: {
 function Auth({ onLogin }: {
     onLogin: (u: User) => Promise<void>;
 }) { const [register, setRegister] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    const [registration, setRegistration] = useState(false);
+    const [registration, setRegistration] = useState(true);
     useEffect(() => { api('/setup').then(settings => setRegistration(settings.registration)).catch(() => {}); }, []);
     return <div className="auth"><div className="auth-story"><div className="brand"><Building2 /> <span className="brand-name">Evolução Serviços <small>- Torre</small></span></div><div><div className="eyebrow">GESTÃO E ACOMPANHAMENTO DE OBRAS</div><h1>Uma visão clara.<br />Em cada etapa.</h1><p>Conecte o planejamento à execução.<br />Organize serviços, acompanhe medições e mantenha o histórico da sua obra.</p><div className="auth-blueprint"><div /><div /><div /><div /><div /><div /></div></div><small>Da primeira etapa à última entrega.</small></div><div className="auth-form"><div><div className="work-square"><HardHat size={24}/></div><h2>{register ? 'Crie seu espaço de trabalho' : 'Bem-vindo ao Evolução Serviços - Torre'}</h2><p>{register ? 'Cadastre sua organização e comece a planejar.' : 'Entre para acompanhar suas obras.'}</p>{error && <div className="error" role="alert">{error}</div>}<form onSubmit={async (e) => { e.preventDefault(); setBusy(true); setError(''); try {
     const body = Object.fromEntries(new FormData(e.currentTarget));

@@ -47,11 +47,10 @@ app.use('/api/auth', (req, res, next) => { const key = req.ip; const a = attempt
 } a.n++; attempts.set(key, a); if (attempts.size > 10000)
     attempts.clear(); if (a.n > 40)
     return res.status(429).json({ error: 'Muitas tentativas. Aguarde 15 minutos.' }); next(); });
-app.get('/api/setup', (req, res) => res.json({ required: !one('SELECT id FROM users LIMIT 1'), registration: !production }));
+app.get('/api/setup', (req, res) => res.json({ required: !one('SELECT id FROM users LIMIT 1'), registration: true }));
 app.get('/api/health', (req, res) => { one('SELECT 1'); res.json({ ok: true }); });
 const credentials = z.object({ email: z.string().email().max(200), password: z.string().min(10).max(128) });
 app.post('/api/auth/register', (req, res, next) => { try {
-    if (production) throw fail('Cadastro público desativado', 403);
     const b = credentials.extend({ name: z.string().min(2).max(120), organization: z.string().min(2).max(150) }).parse(req.body);
     const user = transaction(() => { if (one('SELECT id FROM users WHERE email=?', b.email.toLowerCase()))
         throw fail('E-mail já cadastrado'); const org = randomUUID(); run('INSERT INTO organizations VALUES(?,?)', org, b.organization); const u = { id: randomUUID(), org, name: b.name, email: b.email.toLowerCase(), password: hash(b.password), role: 'admin' }; run('INSERT INTO users VALUES(?,?,?,?,?,?)', u.id, u.org, u.name, u.email, u.password, u.role); return u; });

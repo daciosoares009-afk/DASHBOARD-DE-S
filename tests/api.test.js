@@ -98,7 +98,35 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         });
         assert.equal(login.status, 200);
         assert.match(login.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Strict/i);
-        assert.equal((await fetch(base + '/auth/register', { method: 'POST', headers: forwarded })).status, 403);
+        const registration = await fetch(base + '/auth/register', {
+            method: 'POST',
+            headers: { ...forwarded, 'Content-Type': 'application/json', Origin: 'https://torre.example.test' },
+            body: JSON.stringify({
+                name: 'Nova administradora', organization: 'Organização independente',
+                email: 'new-org@example.test', password: 'Teste-seguro-123', role: 'admin', org: a.value.org
+            })
+        });
+        assert.equal(registration.status, 200);
+        const registered = await registration.json();
+        assert.equal(registered.role, 'admin');
+        assert.notEqual(registered.org, a.value.org);
+        const newCookie = registration.headers.get('set-cookie').split(';')[0];
+        const ownData = await fetch(base + '/data', { headers: { ...forwarded, Cookie: newCookie } });
+        assert.equal(ownData.status, 200);
+        const isolated = await ownData.json();
+        assert.equal(isolated.organization, 'Organização independente');
+        assert.equal(isolated.records.length, 0);
+        assert.equal(isolated.users.length, 1);
+        const forbiddenEdit = await fetch(base + '/users/' + a.value.id + '/access', {
+            method: 'PUT', headers: { ...forwarded, Cookie: newCookie, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'collaborator', works: [] })
+        });
+        assert.equal(forbiddenEdit.status, 404);
+        const duplicate = await fetch(base + '/auth/register', {
+            method: 'POST', headers: { ...forwarded, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'Duplicado', organization: 'Outra', email: registered.email, password: 'Teste-seguro-123' })
+        });
+        assert.equal(duplicate.status, 400);
     }
     finally {
         await stop();

@@ -11,7 +11,7 @@ npm run build
 npm start
 ```
 
-Abra http://localhost:3000. O sistema usa a base existente por padrão. Para uma base nova, crie a primeira conta e organização pela tela de acesso local. Em produção, novos usuários são cadastrados pelo administrador em **Configurações**.
+Abra http://localhost:3000. O sistema usa a base existente por padrão. A opção **Criar uma conta e organização** está disponível também em produção. Ela cria um espaço próprio e uma conta administradora com dados isolados. Para adicionar alguém à organização existente, o administrador usa **Configurações**.
 
 O servidor aplica as migrações pendentes na inicialização. O comando `npm run migrate` também pode ser usado separadamente. `npm run dev` usa Vite quando a pasta `dist` ainda não existe.
 
