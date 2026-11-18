@@ -22,8 +22,9 @@ app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
     if (production) {
         res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
-        if (!req.secure) return res.status(400).json({ error: 'Acesse o sistema por HTTPS' });
-        res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+        const healthCheck = req.path === '/api/health' && ['GET', 'HEAD'].includes(req.method);
+        if (!req.secure && !healthCheck) return res.status(400).json({ error: 'Acesse o sistema por HTTPS' });
+        if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     }
     const origin = process.env.APP_ORIGIN || req.protocol + '://' + req.get('host');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== origin)
@@ -333,5 +334,5 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: 'Erro interno ao processar a solicitação' });
 });
 const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || '127.0.0.1';
-app.listen(port, host, () => console.log('Evolução Serviços - Torre disponível na porta ' + port));
+const host = process.env.RENDER === 'true' ? '0.0.0.0' : process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => console.log(`Evolução Serviços - Torre disponível na porta ${port} (interface ${host})`));

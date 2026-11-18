@@ -86,7 +86,8 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         assert.ok(data.audit.some(event => event.action === 'Arquivamento'));
         await stop();
         await launch({ NODE_ENV: 'production', APP_ORIGIN: 'https://torre.example.test', TRUST_PROXY: '1' });
-        assert.equal((await request('/health')).status, 400);
+        assert.equal((await request('/health')).status, 200);
+        assert.equal((await request('/me')).status, 400);
         const forwarded = { 'X-Forwarded-Proto': 'https' };
         const health = await fetch(base + '/health', { headers: forwarded });
         assert.equal(health.status, 200);
