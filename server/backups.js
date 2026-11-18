@@ -28,8 +28,10 @@ export async function dailyBackup() {
         const names = await readdir(backupDirectory);
         if (names.includes(name)) return await backupStatus();
         await backup(db, temporary);
-        const copy = new DatabaseSync(temporary, { readOnly: true });
+        const copy = new DatabaseSync(temporary);
         try {
+            // A cópia final deve poder ser restaurada como um arquivo único.
+            copy.exec('PRAGMA journal_mode=DELETE');
             if (copy.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok' ||
                 copy.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Backup inconsistente');
         } finally { copy.close(); }
