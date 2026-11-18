@@ -16,6 +16,13 @@ const production = process.env.NODE_ENV === 'production';
 if (production && !/^https:\/\/[^/]+$/.test(process.env.APP_ORIGIN || '')) {
     throw new Error('Defina APP_ORIGIN como a origem HTTPS pública, sem barra final.');
 }
+const configuredOrigins = [process.env.APP_ORIGIN, ...(process.env.ALLOWED_ORIGINS || '').split(',')]
+    .filter(Boolean).map(value => value.trim());
+for (const origin of configuredOrigins) {
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin || (production && parsed.protocol !== 'https:'))
+        throw new Error('As origens permitidas devem ser URLs completas, sem caminhos ou barra final.');
+}
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -28,8 +35,8 @@ app.use((req, res, next) => {
         if (!req.secure && !healthCheck) return res.status(400).json({ error: 'Acesse o sistema por HTTPS' });
         if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     }
-    const origin = process.env.APP_ORIGIN || req.protocol + '://' + req.get('host');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== origin)
+    const origins = configuredOrigins.length ? configuredOrigins : [req.protocol + '://' + req.get('host')];
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin && !origins.includes(req.headers.origin))
         return res.status(403).json({ error: 'Origem não permitida' });
     next();
 });

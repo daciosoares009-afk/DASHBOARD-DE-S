@@ -108,7 +108,7 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
         assert.equal(data.history.length, 2);
         assert.ok(data.audit.some(event => event.action === 'Arquivamento'));
         await stop();
-        await launch({ NODE_ENV: 'production', APP_ORIGIN: 'https://torre.example.test', TRUST_PROXY: '1' });
+        await launch({ NODE_ENV: 'production', APP_ORIGIN: 'https://torre.example.test', ALLOWED_ORIGINS: 'https://torre.up.railway.app', TRUST_PROXY: '1' });
         assert.equal((await request('/health')).status, 200);
         assert.equal((await request('/me')).status, 400);
         const forwarded = { 'X-Forwarded-Proto': 'https' };
@@ -150,6 +150,16 @@ test('API: persistência, isolamento, medições, duplicação, permissões e ex
             body: JSON.stringify({ name: 'Duplicado', organization: 'Outra', email: registered.email, password: 'Teste-seguro-123' })
         });
         assert.equal(duplicate.status, 400);
+        const allowedRailway = await fetch(base + '/auth/login', {
+            method: 'POST', headers: { ...forwarded, 'Content-Type': 'application/json', Origin: 'https://torre.up.railway.app' },
+            body: JSON.stringify({ email: 'new-org@example.test', password: 'Teste-seguro-123' })
+        });
+        assert.equal(allowedRailway.status, 200);
+        const rejectedOrigin = await fetch(base + '/auth/register', {
+            method: 'POST', headers: { ...forwarded, 'Content-Type': 'application/json', Origin: 'https://malicious.example' },
+            body: JSON.stringify({ name: 'Teste', organization: 'Teste', email: 'blocked@example.test', password: 'Teste-seguro-123' })
+        });
+        assert.equal(rejectedOrigin.status, 403);
     }
     finally {
         await stop();
